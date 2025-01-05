@@ -2,22 +2,34 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
-    "time"
+	"runtime/debug"
+	"time"
 
 	"github.com/phuslu/fastdns"
 )
 
 type DNSHandler struct {
 	DNSClient *fastdns.Client
-	Debug bool
+	Debug     bool
 }
 
 func (h *DNSHandler) ServeDNS(rw fastdns.ResponseWriter, req *fastdns.Message) {
 	if h.Debug {
 		slog.Info("serve dns request", "domain", req.Domain, "class", req.Question.Class, "type", req.Question.Type)
 	}
+
+	defer func() {
+		if recoveryMessage := recover(); recoveryMessage != nil {
+			slog.Error(fmt.Sprint(recoveryMessage), string(debug.Stack()))
+			resp := fastdns.AcquireMessage()
+			defer fastdns.ReleaseMessage(resp)
+			fastdns.Error(rw, req, fastdns.RcodeServFail)
+			_, _ = rw.Write(resp.Raw)
+		}
+	}()
 
 	resp := fastdns.AcquireMessage()
 	defer fastdns.ReleaseMessage(resp)
@@ -30,7 +42,7 @@ func (h *DNSHandler) ServeDNS(rw fastdns.ResponseWriter, req *fastdns.Message) {
 		fastdns.Error(rw, req, fastdns.RcodeServFail)
 	}
 
-    _, _ = rw.Write(resp.Raw)
+	_, _ = rw.Write(resp.Raw)
 }
 
 func main() {
